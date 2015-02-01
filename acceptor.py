@@ -13,7 +13,7 @@ import time, serial
 POWER_UP = 0.4
 # Time between states
 TRANSITION = 0.9
-
+CASHBOX_SIZE = 250
 
 
 class Acceptor(object):
@@ -33,8 +33,10 @@ class Acceptor(object):
     def __init__(self):
         # Set to False to kill
         self.running = True
+        
+        # Accept all note as default
+        self._enables = 0x07
         # Say LRC is present for now
-
         self._lrc_ok = True
         # Acceptor has it's own lock
         self._mutex = Lock()
@@ -52,6 +54,8 @@ class Acceptor(object):
         self._model = 0x01
         # byte 5 is software revision (00-7FH)
         self._rev = 0x01
+        
+        self._note_count = 0
 
         # Some states are only sent once, handle them in a queue
         self._b0_ephemeral = Queue()
@@ -69,6 +73,35 @@ class Acceptor(object):
         power_up.start()
 
 
+    def enable_note(self, index):
+        """
+        Set note enable bit so Acceptor accepts note
+        
+        Args:
+            index -- integer index (1-7) of note to enable
+        """        
+        if index is not int:
+            index = int(index)
+        if index > 0 and index <= 7:
+            self._enables |= index
+            print "Enabled note {:d}".format(index)
+        else:
+            print "Invalid enable {:d}".format(index)
+            
+    def disable_note(self, index):
+        """
+        Clear note enable bit so Acceptor rejects note
+        
+        Args:
+            index -- integer index (1-7) of note to disable
+        """        
+        if index is not int:
+            index = int(index)
+        if index > 0 and index <= 7:
+            self._enables &= (~(index) & 0x07)
+            print "Disabled note {:d}".format(index)
+        else:
+            print "Invalid disable {:d}".format(index)            
 
 
     def start(self, portname):
@@ -122,9 +155,11 @@ class Acceptor(object):
 
         self._mutex.acquire()
 
+        # Handle bill feed command
         if cmd.isdigit():
             val = int(cmd, 10)
-            if val > 0 and val <= 7:
+            # Is this bill enabled? Implicitly guarantees 0 < val <= 7
+            if val & self._enables:
                 # Are we idle?
                 if self._state & 0x01 == 1:
                     feed = Thread(target=self._start_accepting, args=(val,))
@@ -136,8 +171,22 @@ class Acceptor(object):
                     self._state = 0x01
                     self._b1_ephemeral.put(0x02)
             else:
-                print "Invalid Bill Number {:s}".format(cmd)
-
+                if val is 0 or val > 7:
+                    print "Invalid Bill Number {:s}".format(cmd)
+                else:
+                    print "Note is disabled"
+                    # Send reject message
+                    self._b1_ephemeral.put(0x02)
+    
+        # Handle bill enable/disable command
+        elif len(cmd) is 2:
+            if cmd[0] is 'D':
+                self.disable_note(cmd[1])                    
+            elif cmd[0] is 'E':
+                self.enable_note(cmd[1])      
+            else:
+                print "Unkown E/D command {:s}".format(cmd)                
+            
         elif cmd is 'C':
             # Put Cheated
             self._b1_ephemeral.put(0x01)
@@ -162,6 +211,9 @@ class Acceptor(object):
         elif cmd is 'X':
             # Put Unit Failure
             self._b2_ephemeral.put(0x04)
+        elif cmd is 'Y':
+            # Set note count back to zero
+            self._note_count = 0
         else:
             print "Unknown Command: {:s}".format(cmd)
 
@@ -294,6 +346,10 @@ class Acceptor(object):
             self._event |= 0x10
         else:
             self._event &= ~(0x10)
+            
+        # Set stacker full if we have enough notes
+        if self._note_count >= CASHBOX_SIZE:
+            self._event |= 0x08            
 
 
     def _power_up(self):
@@ -321,15 +377,20 @@ class Acceptor(object):
         Returns:
             None
         """
-        # Accepting
-        self._state = 0x02
-        time.sleep(TRANSITION)
-
-        # Escrow - Crtical that both of these bits are set!
-        self._mutex.acquire()
-        self._state = 0x04
-        self._value = val
-        self._mutex.release()
+        # If stacker is full, set the stacker full flag and reject note
+        if self._note_count >= CASHBOX_SIZE:
+            self._event |= 0x08
+            self._b1_ephemeral.put(0x02)
+        else:
+            # Accepting
+            self._state = 0x02
+            time.sleep(TRANSITION)
+    
+            # Escrow - Crtical that both of these bits are set!
+            self._mutex.acquire()
+            self._state = 0x04
+            self._value = val
+            self._mutex.release()
 
 
     def _accept_bill(self):
@@ -348,6 +409,7 @@ class Acceptor(object):
         # Stacked + Idle
         self._b0_ephemeral.put(0x10)
         self._state = 0x01
+        self._note_count = self._note_count + 1
 
 
     def _return_bill(self):

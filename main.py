@@ -5,7 +5,6 @@ Soft Bill is a virtual, RS-232 bill validator
 @version: 0.1
 
 TODO: Implement master timeout (no poll, we must disable ourselves)
-TODO: Bill enable/disable register
 TODO: More useful cheat mocking
 TODO: Check ACK number, resend last message if required
 """
@@ -53,6 +52,12 @@ def main(portname):
     W - Powering up
     I - Invalid Command was received
     X - Failure (This BA has failed)
+    Y - Empty Cashbox
+    
+    Bill Disable and Enables:
+    Dx - where x is the index to disable (e.g. D1 disables $1)
+    Ex - where x in the index to enable  (e.g. E1 enables $1)
+    
     '''
 
 
