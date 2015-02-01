@@ -5,10 +5,8 @@ import sys, threading
 import serial, time
 
 ### Globals ###
-# Change this value to modify polling rate. Currently 100 ms
-PollRate = 0.1
 # Just realistic, just a feel good value
-PowerUp = 0.4
+POWER_UP = 0.4
 
 # Set to false to kill background serial thread
 RUNNING = True
@@ -25,10 +23,7 @@ def serial_runner(portname, ba):
     Returns:
         None
     """
-    
-    # Get access to our globals
-    global RUNNING
- 
+     
     ser = serial.Serial(
         port=portname,
         baudrate=9600,
@@ -38,7 +33,7 @@ def serial_runner(portname, ba):
     )
     try:
     
-        while ser.isOpen() and RUNNING:
+        while ser.isOpen() and ba.running:
                   
             msg = ba.get_message()
         
@@ -58,9 +53,7 @@ def serial_runner(portname, ba):
         
             # Send message to master
             ser.write(msg)
-            time.sleep(0.1)
                        
-            time.sleep(PollRate)    
     except serial.SerialException:
         print 'Terminating serial thread'
         pass
@@ -96,6 +89,8 @@ class Acceptor:
         self.model = 0x01
         # byte 5 is software revision
         self.rev = 0x01
+        
+        self.running = True
         
     def getByte2(self):
         """
@@ -207,9 +202,7 @@ def main(portname):
 
     """    
     
-    
-    global RUNNING
-    BA = Acceptor()
+    ba = Acceptor()
     
     cmd_table = '''
     
@@ -246,7 +239,7 @@ def main(portname):
     
     print "Starting software BA on port {:s}".format(portname)
     
-    t = threading.Thread(target=serial_runner, args=(portname, BA))    
+    t = threading.Thread(target=serial_runner, args=(portname, ba))    
     # Per note https://docs.python.org/2/library/threading.html#thread-objects
     # 16.2.1 Note: Daemon threads are abruptly stopped, set to false for proper
     # release of resources (i.e. our comm port)
@@ -254,26 +247,26 @@ def main(portname):
     t.start()
     
     # Simulate power uptime, clear the powering up flag
-    time.sleep(PowerUp)
-    BA.powered_up()
+    time.sleep(POWER_UP)
+    ba.powered_up()
     
     # Loop until we are to exit
     try:
         print cmd_table
-        while RUNNING:
+        while ba.running:
             
             cmd = raw_input()
-            result = BA.parse_cmd(cmd)
+            result = ba.parse_cmd(cmd)
             if result is 0:
                 pass
             elif result is 1:
-                RUNNING = False
+                ba.running = False
             elif result is 2:
                 print cmd_table
             
     except KeyboardInterrupt:
         print '\n\nGoodbye!'
-        RUNNING = False
+        ba.running = False
         pass
     
     
