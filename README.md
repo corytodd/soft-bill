@@ -1,8 +1,6 @@
 # Soft Bill
 
 ## A virtual RS-232 Bill Acceptor
-
-# soft-bill
 Emulate an RS-232 bill acceptor in software.
 
 
