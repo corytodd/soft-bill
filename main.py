@@ -2,12 +2,13 @@
 """
 Soft Bill is a virtual, RS-232 bill validator
 author: me@corytodd.us
-
+version: 0.1
 
 TODO: Implement master timeout (no poll, we must disable ourselves)
 TODO: Bill enable/disable register
 TODO: More useful cheat mocking
 TODO: Check ACK number, resend last message if required
+TODO: Split up this file a little bit
 
 """
 
