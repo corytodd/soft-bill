@@ -39,6 +39,6 @@ python main.py COM7
     
 ```
 
-python main.py /dev/tty3
+./main.py /dev/tty3
 
 ``` 
