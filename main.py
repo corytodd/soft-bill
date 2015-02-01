@@ -5,12 +5,9 @@ import sys, threading
 import serial, time
 
 ### Globals ###
-# Just realistic, just a feel good value
+# Not realistic, just a feel good value
 POWER_UP = 0.4
-
-# Set to false to kill background serial thread
-RUNNING = True
-
+TRANSITION = 0.9
 
 # Background thread to handle serial comms
 def serial_runner(portname, ba):
@@ -146,7 +143,7 @@ class Acceptor:
         Args:
             cmd -- string arg
 
-        Returns:QQ?,
+        Returns:
             Int -- 0 if okay, 1 to exit, 2 to quit
         """        
         if cmd is 'Q':
@@ -199,7 +196,6 @@ def main(portname):
     
     Args:
         portname -- string portname e.g. COM2, /dev/tty.*
-
     """    
     
     ba = Acceptor()
@@ -210,7 +206,6 @@ def main(portname):
     ctrl+c or Q to quit    
     
     Bill position to simulate bill insertions:
-
     1 - $1   or 1st note
     2 - $2   or 2nd note
     3 - $5   or 3rd note
@@ -219,18 +214,18 @@ def main(portname):
     6 - $50  or 6th note
     7 - $100 or 7th note    
     
-    Note: Software automatically changes states once mock bill insertion begins
-         
-    Idling->Accepting->Escrowed->{Stacking, Returning}->{Stacked, Returned}
+    Note: 
+    Software automatically changes states once mock bill insertion begins         
+    Idling->Accepting->Escrowed->{Stacking,Returning}->{Stacked,Returned}
     
-    Toggle Events:\n
-    
+    Toggle Events:    
     C - Cheated
     R - Rejected (We think note is invalid)
     J - Jammed
     F - Stacker Full
     P - LRC present (cashbox: set to 1 means it's there)
     
+    Extra Stuff:
     W - Powering up
     I - Invalid Command was received
     X - Failure (This BA has failed)
@@ -246,7 +241,7 @@ def main(portname):
     t.daemon = False
     t.start()
     
-    # Simulate power uptime, clear the powering up flag
+    # Simulate powerup time, clear the powering up flag
     time.sleep(POWER_UP)
     ba.powered_up()
     
