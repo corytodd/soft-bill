@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 
+from threading import Thread, Lock
+import serial, time, sys
 
-import sys, threading
-import serial, time
+
+mutex = Lock()
+
 
 ### Globals ###
 # Not realistic, just a feel good value
 POWER_UP = 0.4
+# Time between states
 TRANSITION = 0.9
 
 # Background thread to handle serial comms
@@ -38,18 +42,35 @@ def serial_runner(portname, ba):
             serial_in = ''
             while ser.inWaiting() > 0:
                 serial_in += ser.read(1)
-            if (serial_in == ''): continue
+            if (serial_in == ''): continue    
+            
+            mutex.acquire()            
             
             # Set the ACK
             msg[2] |= (ord(serial_in[2]) & 1)      
-    
+        
+            
+            # If we're in escrow and master says stack
+            if ((ord(serial_in[4]) & 0x20)) and (ba.state == 0x04):
+                ba.accept_bill()
+            # If we're in escrow and master says return                
+            elif ((ord(serial_in[4]) & 0x40)) and (ba.state == 0x04):
+                ba.return_bill()
+                
             # Set the checksum
             msg[10] = msg[1] ^ msg[2]
             for b in xrange(3,5):
                 msg[10] ^= msg[b]
+                
         
             # Send message to master
             ser.write(msg)
+            time.sleep(0.2)                
+                
+            # Clear any events since we just sent message
+            ba.clear_events()        
+            ba.clear_ephemeral_state()
+            mutex.release()
                        
     except serial.SerialException:
         print 'Terminating serial thread'
@@ -79,25 +100,28 @@ class Acceptor:
         # note: this is the lower 3 bits of byte 2
         self.ext = 0x01
         # note: this is the upper 5 bits of byte 2
-        self.val = 0x00
+        self.value = 0x00
         # byte 3 is reserverd
         self.resd = 0x00
         # byte 4 is model (00-7FH)
         self.model = 0x01
         # byte 5 is software revision
         self.rev = 0x01
-        
+        # Set to False to kill
         self.running = True
+        self.lrc_ok = True
         
+        self.ephemeral = False
+                
     def getByte2(self):
         """
         Returns the value of byte 2 wich contains 3 possible states
         along with any bill value
         
         Returns:
-            int -- Logical OR of ext and val
+            int -- Logical OR of ext and value
         """
-        return self.ext | self.val
+        return self.ext | (self.value << 3)
                     
                     
     def get_message(self):
@@ -135,6 +159,106 @@ class Acceptor:
         """
         return val ^ mask
         
+    def start_accepting(self, val):
+        """
+        Blocks the calling thread as this simulates bill movement from idle to
+            escrow.
+        
+        Params:
+            val -- integer index of note (0-7)
+            
+        Returns:
+            None
+        """
+        # Accepting
+        self.state = 0x02
+        time.sleep(TRANSITION)
+        
+        # Escrow
+        # Technically we should block the serial thread until BOTH
+        # of these bytes are set... but let's see if we actually do see a race
+        # condition. I doubt we will
+        self.state = 0x04
+        self.value = val
+        
+    def accept_bill(self):
+        """
+        Simulate the movement of the bill from escrow to stacked
+        
+        Params:
+            None
+            
+        Returns:
+            None
+        """
+        # Stacking
+        self.state = 0x08
+        time.sleep(TRANSITION)
+        # Stacked + Idle
+        self.state = 0x11
+        # Set the ephemeral flag so we clear this once sent
+        self.ephemeral = True
+        
+    def return_bill(self):
+        """
+        Simulate the movement of the bill from escrow to returned
+        
+        Params:
+            None
+            
+        Returns:
+            None
+        """
+        # Returning
+        self.state = 0x20
+        time.sleep(TRANSITION)
+        # Returned + Idle
+        self.state = 0x41
+        # Set the ephemeral flag so we clear this once sent        
+        self.ephemeral = True
+        
+    def clear_events(self):
+        """
+        Clears all events from BA
+        
+        Params:
+            None
+        
+        Returns:
+            None
+        """
+        self.check_lrc()
+        
+    def clear_ephemeral_state(self):
+        """
+        Clear any states that should only be sent one time
+        
+        Params:
+            None
+            
+        Returns:
+            None
+        """
+        if self.ephemeral:
+            self.state = 0x01     
+            self.ephemeral = False
+        
+    def check_lrc(self):
+        """
+        Checks the state of the LRC and set event if required
+        
+        Params:
+            None
+        
+        Returns:
+            None
+        """
+        if self.lrc_ok:
+            self.event = 0x10
+        else:
+            self.event = 0x00
+        
+        
     def parse_cmd(self, cmd):
         """
         Applies the given command to modify the state/event of 
@@ -149,17 +273,21 @@ class Acceptor:
         if cmd is 'Q':
             return 1
         if cmd is '?' or cmd is 'H':
-            return 2
-            
+            return 2            
+
 
         if cmd.isdigit():
             val = int(cmd, 10)
             if val >= 0 and val <= 7:
-                self.val = val
+                self.start_accepting(val)
             else:
                 print "Invalid Bill Command"
                 
-        elif cmd is 'C':
+            return 0
+
+        mutex.acquire()            
+        
+        if cmd is 'C':
             # Toggle Cheated
             self.event = self.toggle(self.event, 0x01)
         elif cmd is 'R':
@@ -173,7 +301,7 @@ class Acceptor:
             self.event = self.toggle(self.event, 0x08)
         elif cmd is 'P':
             # Toggle Cashbox Present
-            self.event = self.toggle(self.event, 0x10)
+            self.lrc_ok = not self.lrc_ok
         elif cmd is 'W':
             # Toggle Powering Up
             self.ext = self.toggle(self.ext, 0x01)
@@ -184,10 +312,11 @@ class Acceptor:
             # Toggle Unit Failure
             self.ext = self.toggle(self.ext, 0x04)
         else:
-            print "Unknown Command: {:s}".format(cmd)
+            print "Unknown Command: {:s}".format(cmd)            
             
-        return 0
-    
+            
+        mutex.release()
+        return 0        
     
 ### Main  Routine ###   
 def main(portname):
@@ -234,7 +363,7 @@ def main(portname):
     
     print "Starting software BA on port {:s}".format(portname)
     
-    t = threading.Thread(target=serial_runner, args=(portname, ba))    
+    t = Thread(target=serial_runner, args=(portname, ba))    
     # Per note https://docs.python.org/2/library/threading.html#thread-objects
     # 16.2.1 Note: Daemon threads are abruptly stopped, set to false for proper
     # release of resources (i.e. our comm port)
