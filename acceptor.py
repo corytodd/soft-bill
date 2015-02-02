@@ -7,7 +7,7 @@ Created on Sun Feb 01 09:14:47 2015
 from threading import Thread, Lock
 from Queue import Queue
 from random import randint
-import time, serial
+import time, serial, monitor
 
 ### Globals ###
 # Not realistic, just a feel good value
@@ -17,7 +17,7 @@ TRANSITION = 0.9
 CASHBOX_SIZE = 250
 
 # Percent cheat rate if cheat mode enabled (e.g. 2%)
-CHEAT_RATE = 5
+CHEAT_RATE = 50
 
 
 class Acceptor(object):
@@ -75,10 +75,14 @@ class Acceptor(object):
 
         # Used to recall in case of NAK
         self._last_msg = None
+        
+        #
+        self._mon= monitor.Monitor(5, self._timedout)
+        self._mon.start()
 
         # Simulate power up
         power_up = Thread(target=self._power_up)
-        power_up.start()
+        power_up.start()        
 
 
     def enable_note(self, index):
@@ -141,8 +145,10 @@ class Acceptor(object):
         Returns:
             None
         """
+        print "Shutting down..."
         self.running = False
         self._serial_thread.join()
+        self._mon.stop()
 
 
     def parse_cmd(self, cmd):
@@ -261,6 +267,7 @@ class Acceptor(object):
                 if serial_in == '':
                     continue
 
+                self._mon.reset()
                 self._mutex.acquire()
 
                 msg = self._get_message()
@@ -399,8 +406,7 @@ class Acceptor(object):
             self._state = 0x02
 
             if Acceptor.cheating:
-                cheat_thread = Thread(target=self._cheat, args=(val,))
-                cheat_thread.start()
+                self._cheat()
 
             time.sleep(TRANSITION)
             # Only enter escrow mode if cheat flag is not tripped
@@ -460,4 +466,19 @@ class Acceptor(object):
         if randint(1, 100) <= CHEAT_RATE:
             self._b1_ephemeral.put(0x01)
             self._cheat_flag = True
+    def _timedout(self):
+        """
+        Disable the acceptor because the master has not spoken too us
+        in too long
 
+        Args:
+            None
+            
+        Returns:
+            None
+        """
+        print "Comm timeout"
+        # Effectively stop all acceptance
+        self._enables = 0
+        
+    
