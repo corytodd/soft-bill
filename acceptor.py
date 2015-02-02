@@ -6,6 +6,7 @@ Created on Sun Feb 01 09:14:47 2015
 """
 from threading import Thread, Lock
 from Queue import Queue
+from random import randint
 import time, serial
 
 ### Globals ###
@@ -14,6 +15,9 @@ POWER_UP = 0.4
 # Time between states
 TRANSITION = 0.9
 CASHBOX_SIZE = 250
+
+# Percent cheat rate if cheat mode enabled (e.g. 2%)
+CHEAT_RATE = 5
 
 
 class Acceptor(object):
@@ -28,6 +32,9 @@ class Acceptor(object):
         None
 
     """
+
+    # Set to true for random cheat events
+    cheating = False
 
 
     def __init__(self):
@@ -56,6 +63,7 @@ class Acceptor(object):
         self._rev = 0x01
         
         self._note_count = 0
+        self._cheat_flag = False
 
         # Some states are only sent once, handle them in a queue
         self._b0_ephemeral = Queue()
@@ -188,8 +196,9 @@ class Acceptor(object):
                 print "Unkown E/D command {:s}".format(cmd)                
             
         elif cmd is 'C':
-            # Put Cheated
-            self._b1_ephemeral.put(0x01)
+            # Toggle random cheating events
+            Acceptor.cheating = not Acceptor.cheating
+            print "Cheat Mode on: {:s}".format(str(Acceptor.cheating))
         elif cmd is 'R':
             # Put Rejected
             self._b1_ephemeral.put(0x02)
@@ -327,7 +336,11 @@ class Acceptor(object):
         msg = bytearray([0x02, 0x0B, 0x20, state, event,
                          (ext | (self._value << 3)), self._resd, self._model,
                          self._rev, 0x03, 0x3A])
-
+                             
+        # Clear cheat flag if event set
+        if ext & 0x01:
+            self._cheat_flag = False                                
+                             
         self._last_msg = msg
         return msg
 
@@ -384,13 +397,23 @@ class Acceptor(object):
         else:
             # Accepting
             self._state = 0x02
+
+            if Acceptor.cheating:
+                cheat_thread = Thread(target=self._cheat, args=(val,))
+                cheat_thread.start()
+
             time.sleep(TRANSITION)
-    
-            # Escrow - Crtical that both of these bits are set!
-            self._mutex.acquire()
-            self._state = 0x04
-            self._value = val
-            self._mutex.release()
+            # Only enter escrow mode if cheat flag is not tripped
+            if not self._cheat_flag:
+                # Escrow - Crtical that both of these bits are set!
+                self._mutex.acquire()
+                self._state = 0x04
+                self._value = val
+                self._mutex.release()
+            else:
+                # Return to idle mode, set reject flag
+                self._state = 0x01
+                self._b1_ephemeral.put(0x02)
 
 
     def _accept_bill(self):
@@ -428,3 +451,13 @@ class Acceptor(object):
         # Returned + Idle
         self._b0_ephemeral.put(0x50)
         self._state = 0x01
+
+
+    def _cheat(self, seed):
+        """
+        Randomly attempts to "cheat" the acceptor
+        """
+        if randint(1, 100) <= CHEAT_RATE:
+            self._b1_ephemeral.put(0x01)
+            self._cheat_flag = True
+
