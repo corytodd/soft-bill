@@ -16,7 +16,7 @@ class Monitor(object):
     def __init__(self, interval, dead_fn):
         self.interval = interval
         self.dead_fn = dead_fn
-        self.worker_thread = Thread(self.do_monitor)
+        self.worker_thread = Thread(target=self.do_monitor)
         self.expired = False
 
     def start(self):
@@ -41,6 +41,7 @@ class Monitor(object):
         Returns:
             None
         """
+        self.interval = 0.1
         self.dead_fn = self._nop
         self.worker_thread.join()
 
