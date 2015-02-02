@@ -19,6 +19,8 @@ CASHBOX_SIZE = 250
 # Percent cheat rate if cheat mode enabled (e.g. 2%)
 CHEAT_RATE = 50
 
+#pylint: disable-msg=R0902,R0912,R0915
+
 
 class Acceptor(object):
     """
@@ -40,7 +42,7 @@ class Acceptor(object):
     def __init__(self):
         # Set to False to kill
         self.running = True
-        
+
         # Accept all note as default
         self._enables = 0x07
         # Say LRC is present for now
@@ -61,7 +63,7 @@ class Acceptor(object):
         self._model = 0x01
         # byte 5 is software revision (00-7FH)
         self._rev = 0x01
-        
+
         self._note_count = 0
         self._cheat_flag = False
 
@@ -75,23 +77,23 @@ class Acceptor(object):
 
         # Used to recall in case of NAK
         self._last_msg = None
-        
+
         #
-        self._mon= monitor.Monitor(5, self._timedout)
+        self._mon = monitor.Monitor(5, self._timedout)
         self._mon.start()
 
         # Simulate power up
         power_up = Thread(target=self._power_up)
-        power_up.start()        
+        power_up.start()
 
 
     def enable_note(self, index):
         """
         Set note enable bit so Acceptor accepts note
-        
+
         Args:
             index -- integer index (1-7) of note to enable
-        """        
+        """
         if index is not int:
             index = int(index)
         if index > 0 and index <= 7:
@@ -99,21 +101,21 @@ class Acceptor(object):
             print "Enabled note {:d}".format(index)
         else:
             print "Invalid enable {:d}".format(index)
-            
+
     def disable_note(self, index):
         """
         Clear note enable bit so Acceptor rejects note
-        
+
         Args:
             index -- integer index (1-7) of note to disable
-        """        
+        """
         if index is not int:
             index = int(index)
         if index > 0 and index <= 7:
             self._enables &= (~(index) & 0x07)
             print "Disabled note {:d}".format(index)
         else:
-            print "Invalid disable {:d}".format(index)            
+            print "Invalid disable {:d}".format(index)
 
 
     def start(self, portname):
@@ -127,7 +129,8 @@ class Acceptor(object):
             None
 
         """
-        self._serial_thread = Thread(target=self._serial_runner, args=(portname,))
+        self._serial_thread = Thread(target=self._serial_runner,
+                                     args=(portname,))
         # Per https://docs.python.org/2/library/threading.html#thread-objects
         # 16.2.1: Daemon threads are abruptly stopped, set to false for proper
         # release of resources (i.e. our comm port)
@@ -191,20 +194,24 @@ class Acceptor(object):
                     print "Note is disabled"
                     # Send reject message
                     self._b1_ephemeral.put(0x02)
-    
+
         # Handle bill enable/disable command
         elif len(cmd) is 2:
             if cmd[0] is 'D':
-                self.disable_note(cmd[1])                    
+                self.disable_note(cmd[1])
             elif cmd[0] is 'E':
-                self.enable_note(cmd[1])      
+                self.enable_note(cmd[1])
             else:
-                print "Unkown E/D command {:s}".format(cmd)                
-            
+                print "Unkown E/D command {:s}".format(cmd)
+
         elif cmd is 'C':
             # Toggle random cheating events
             Acceptor.cheating = not Acceptor.cheating
-            print "Cheat Mode on: {:s}".format(str(Acceptor.cheating))
+            if Acceptor.cheating:
+                print "Cheat Mode Enabled: {:d}% Chance of Cheat".format(
+                    CHEAT_RATE)
+            else:
+                print "Cheat Mode Disabled"
         elif cmd is 'R':
             # Put Rejected
             self._b1_ephemeral.put(0x02)
@@ -343,11 +350,11 @@ class Acceptor(object):
         msg = bytearray([0x02, 0x0B, 0x20, state, event,
                          (ext | (self._value << 3)), self._resd, self._model,
                          self._rev, 0x03, 0x3A])
-                             
+
         # Clear cheat flag if event set
         if ext & 0x01:
-            self._cheat_flag = False                                
-                             
+            self._cheat_flag = False
+
         self._last_msg = msg
         return msg
 
@@ -366,10 +373,10 @@ class Acceptor(object):
             self._event |= 0x10
         else:
             self._event &= ~(0x10)
-            
+
         # Set stacker full if we have enough notes
         if self._note_count >= CASHBOX_SIZE:
-            self._event |= 0x08            
+            self._event |= 0x08
 
 
     def _power_up(self):
@@ -474,12 +481,11 @@ class Acceptor(object):
 
         Args:
             None
-            
+
         Returns:
             None
         """
         print "Comm timeout"
         # Effectively stop all acceptance
         self._enables = 0
-        
-    
+

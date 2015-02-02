@@ -4,7 +4,6 @@ Soft Bill is a virtual, RS-232 bill validator
 @auth@or: me@corytodd.us
 @version: 0.2
 
-TODO: Implement master timeout (no poll, we must disable ourselves)
 TODO: Check ACK number, resend last message if required
 """
 import acceptor
@@ -75,7 +74,7 @@ def main(portname):
             elif result is 1:
                 slave.stop()
             elif result is 2:
-                print cmd_table
+                print cmd_table                
 
     except KeyboardInterrupt:
         slave.running = False
