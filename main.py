@@ -6,7 +6,7 @@ Soft Bill is a virtual, RS-232 bill validator
 
 TODO: Check ACK number, resend last message if required
 """
-import acceptor
+import acceptor, autopilot
 import sys
 
 
@@ -51,6 +51,7 @@ def main(portname):
     I - Invalid Command was received
     X - Failure (This BA has failed)
     Y - Empty Cashbox
+    A - AutoPilot
     
     Bill Disable and Enables:
     Dx - where x is the index to disable (e.g. D1 disables $1)
@@ -61,6 +62,9 @@ def main(portname):
 
     print "Starting software BA on port {:s}".format(portname)
     slave.start(portname)
+    
+    # Acquire a pilot
+    pilot = autopilot.AutoPilot(slave)
 
     # Loop until we are to exit
     try:
@@ -74,7 +78,13 @@ def main(portname):
             elif result is 1:
                 slave.stop()
             elif result is 2:
-                print cmd_table                
+                print cmd_table      
+            elif result is 3:
+                if not pilot.running:
+                    pilot.start()
+                else:
+                    pilot.stop()
+                
 
     except KeyboardInterrupt:
         slave.running = False
