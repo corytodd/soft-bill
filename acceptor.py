@@ -163,12 +163,14 @@ class Acceptor(object):
             cmd -- string arg
 
         Returns:
-            Int -- 0 if okay, 1 to exit, 2 to quit
+            Int -- 0 if okay, 1 to exit, 2 for help, 3 for autopilot
         """
         if cmd is 'Q':
             return 1
         if cmd is '?' or cmd is 'H':
             return 2
+        if cmd is 'A':
+            return 3
 
         self._mutex.acquire()
 
