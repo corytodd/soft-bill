@@ -66,6 +66,8 @@ class Acceptor(object):
 
         self._note_count = 0
         self._cheat_flag = False
+        
+        self._ack = -1
 
         # Some states are only sent once, handle them in a queue
         self._b0_ephemeral = Queue()
@@ -97,7 +99,9 @@ class Acceptor(object):
         if index is not int:
             index = int(index)
         if index > 0 and index <= 7:
-            self._enables |= index
+            # Turn value into bitwise flag
+            flag = pow(2, index - 1)
+            self._enables |= flag
             print "Enabled note {:d}".format(index)
         else:
             print "Invalid enable {:d}".format(index)
@@ -110,10 +114,17 @@ class Acceptor(object):
             index -- integer index (1-7) of note to disable
         """
         if index is not int:
-            index = int(index)
+            try:
+                index = int(index)
+            except:
+                print "Invalid Note #"
+                return
+                
         if index > 0 and index <= 7:
-            self._enables &= (~(index) & 0x07)
-            print "Disabled note {:d}".format(index)
+            # Turn value into bitwise flag
+            flag = pow(2, index - 1)      
+            self._enables &= ~(flag)
+            print "Disabled note {:d}.".format(index)
         else:
             print "Invalid disable {:d}".format(index)
 
@@ -177,8 +188,9 @@ class Acceptor(object):
         # Handle bill feed command
         if cmd.isdigit():
             val = int(cmd, 10)
-            # Is this bill enabled? Implicitly guarantees 0 < val <= 7
-            if val & self._enables:
+            # Convert value to bitwise flag (2^[val-1])
+            flag = pow(2, val - 1)
+            if flag & self._enables:
                 # Are we idle?
                 if self._state & 0x01 == 1:
                     feed = Thread(target=self._start_accepting, args=(val,))
@@ -190,10 +202,11 @@ class Acceptor(object):
                     self._state = 0x01
                     self._b1_ephemeral.put(0x02)
             else:
+                # Why was this note rejected?
                 if val is 0 or val > 7:
-                    print "Invalid Bill Number {:s}".format(cmd)
+                    print "Invalid Bill Number {:d}".format(val)
                 else:
-                    print "Note is disabled"
+                    print "Note {:d} disabled".format(val)
                     # Send reject message
                     self._b1_ephemeral.put(0x02)
 
@@ -238,6 +251,8 @@ class Acceptor(object):
         elif cmd is 'Y':
             # Set note count back to zero
             self._note_count = 0
+        elif cmd is 'L':
+            print format(self._enables, '#010b')
         else:
             print "Unknown Command: {:s}".format(cmd)
 
@@ -276,24 +291,52 @@ class Acceptor(object):
                 if serial_in == '':
                     continue
 
+
                 self._mon.reset()
                 self._mutex.acquire()
+                
+                # Update our enable/disable register
+                self._enables = ord(serial_in[3])
+                
+                # Check and toggle ACK
+                mack = (ord(serial_in[2]) & 1)
+                
+                if self._ack is -1:
+                    self._ack = (ord(serial_in[2]) & 1)
+                
 
-                msg = self._get_message()
-
-                # Set the ACK
-                msg[2] |= (ord(serial_in[2]) & 1)
-
-                self._accept_or_return(serial_in)
-
-                # Set the checksum
-                msg[10] = msg[1] ^ msg[2]
-                for byte in xrange(3, 5):
-                    msg[10] ^= msg[byte]
+                if self._ack != mack:
+                    print "Bad ACK, resending last message..."
+                    msg = self._last_msg
+                    
+                else:
+                    # We must be okay, toggle the expected ack #
+                    self._ack ^= 1
+                    
+                    # Build next message
+                    msg = self._get_message()
+    
+                    # Set the ACK
+                    msg[2] |= mack
+    
+                    # Check if we need to stack or return
+                    self._accept_or_return(serial_in)
+    
+                    # Set the checksum
+                    msg[10] = msg[1] ^ msg[2]
+                    for byte in xrange(3, 9):
+                        msg[10] ^= msg[byte]
+                    
+                    # Since we're locked, wipe out any value we may have sent
+                    # ... but only if we're idle so we're positive the master
+                    # got our credit message
+                    if msg[3] is 0x01:
+                        self._value = 0x00
 
 
                 # Send message to master
-                ser.write(msg)
+                ser.write(msg)                
+                
                 self._mutex.release()
 
                 # Slow down a bit, our virutal environment is too fast

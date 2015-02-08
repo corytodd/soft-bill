@@ -2,9 +2,8 @@
 """
 Soft Bill is a virtual, RS-232 bill validator
 @auth@or: me@corytodd.us
-@version: 0.4
+@version: 0.5
 
-TODO: Check ACK number, resend last message if required
 """
 import acceptor, autopilot
 import sys
@@ -53,10 +52,10 @@ def main(portname):
     Y - Empty Cashbox
     A - AutoPilot
     
-    Bill Disable and Enables:
+    Bill Disable and Enables: (Only effective in interrupt mode)
     Dx - where x is the index to disable (e.g. D1 disables $1)
     Ex - where x in the index to enable  (e.g. E1 enables $1)
-    
+    L  - MSB -> LSB enable/disable (1 enabled, 0 disabled)
     '''
 
 
