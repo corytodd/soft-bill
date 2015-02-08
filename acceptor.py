@@ -291,24 +291,52 @@ class Acceptor(object):
                 if serial_in == '':
                     continue
 
+
                 self._mon.reset()
                 self._mutex.acquire()
+                
+                # Update our enable/disable register
+                self._enables = ord(serial_in[3])
+                
+                # Check and toggle ACK
+                mack = (ord(serial_in[2]) & 1)
+                
+                if self._ack is -1:
+                    self._ack = (ord(serial_in[2]) & 1)
+                
 
-                msg = self._get_message()
-
-                # Set the ACK
-                msg[2] |= (ord(serial_in[2]) & 1)
-
-                self._accept_or_return(serial_in)
-
-                # Set the checksum
-                msg[10] = msg[1] ^ msg[2]
-                for byte in xrange(3, 5):
-                    msg[10] ^= msg[byte]
+                if self._ack != mack:
+                    print "Bad ACK, resending last message..."
+                    msg = self._last_msg
+                    
+                else:
+                    # We must be okay, toggle the expected ack #
+                    self._ack ^= 1
+                    
+                    # Build next message
+                    msg = self._get_message()
+    
+                    # Set the ACK
+                    msg[2] |= mack
+    
+                    # Check if we need to stack or return
+                    self._accept_or_return(serial_in)
+    
+                    # Set the checksum
+                    msg[10] = msg[1] ^ msg[2]
+                    for byte in xrange(3, 9):
+                        msg[10] ^= msg[byte]
+                    
+                    # Since we're locked, wipe out any value we may have sent
+                    # ... but only if we're idle so we're positive the master
+                    # got our credit message
+                    if msg[3] is 0x01:
+                        self._value = 0x00
 
 
                 # Send message to master
-                ser.write(msg)
+                ser.write(msg)                
+                
                 self._mutex.release()
 
                 # Slow down a bit, our virutal environment is too fast

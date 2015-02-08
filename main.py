@@ -4,7 +4,6 @@ Soft Bill is a virtual, RS-232 bill validator
 @auth@or: me@corytodd.us
 @version: 0.4
 
-TODO: Check ACK number, resend last message if required
 """
 import acceptor, autopilot
 import sys
