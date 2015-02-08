@@ -66,6 +66,8 @@ class Acceptor(object):
 
         self._note_count = 0
         self._cheat_flag = False
+        
+        self._ack = -1
 
         # Some states are only sent once, handle them in a queue
         self._b0_ephemeral = Queue()
@@ -97,7 +99,9 @@ class Acceptor(object):
         if index is not int:
             index = int(index)
         if index > 0 and index <= 7:
-            self._enables |= index
+            # Turn value into bitwise flag
+            flag = pow(2, index - 1)
+            self._enables |= flag
             print "Enabled note {:d}".format(index)
         else:
             print "Invalid enable {:d}".format(index)
@@ -110,10 +114,17 @@ class Acceptor(object):
             index -- integer index (1-7) of note to disable
         """
         if index is not int:
-            index = int(index)
+            try:
+                index = int(index)
+            except:
+                print "Invalid Note #"
+                return
+                
         if index > 0 and index <= 7:
-            self._enables &= (~(index) & 0x07)
-            print "Disabled note {:d}".format(index)
+            # Turn value into bitwise flag
+            flag = pow(2, index - 1)      
+            self._enables &= ~(flag)
+            print "Disabled note {:d}.".format(index)
         else:
             print "Invalid disable {:d}".format(index)
 
@@ -177,8 +188,9 @@ class Acceptor(object):
         # Handle bill feed command
         if cmd.isdigit():
             val = int(cmd, 10)
-            # Is this bill enabled? Implicitly guarantees 0 < val <= 7
-            if val & self._enables:
+            # Convert value to bitwise flag (2^[val-1])
+            flag = pow(2, val - 1)
+            if flag & self._enables:
                 # Are we idle?
                 if self._state & 0x01 == 1:
                     feed = Thread(target=self._start_accepting, args=(val,))
@@ -190,10 +202,11 @@ class Acceptor(object):
                     self._state = 0x01
                     self._b1_ephemeral.put(0x02)
             else:
+                # Why was this note rejected?
                 if val is 0 or val > 7:
-                    print "Invalid Bill Number {:s}".format(cmd)
+                    print "Invalid Bill Number {:d}".format(val)
                 else:
-                    print "Note is disabled"
+                    print "Note {:d} disabled".format(val)
                     # Send reject message
                     self._b1_ephemeral.put(0x02)
 
@@ -238,6 +251,8 @@ class Acceptor(object):
         elif cmd is 'Y':
             # Set note count back to zero
             self._note_count = 0
+        elif cmd is 'L':
+            print format(self._enables, '#010b')
         else:
             print "Unknown Command: {:s}".format(cmd)
 

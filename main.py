@@ -53,10 +53,10 @@ def main(portname):
     Y - Empty Cashbox
     A - AutoPilot
     
-    Bill Disable and Enables:
+    Bill Disable and Enables: (Only effective in interrupt mode)
     Dx - where x is the index to disable (e.g. D1 disables $1)
     Ex - where x in the index to enable  (e.g. E1 enables $1)
-    
+    L  - MSB -> LSB enable/disable (1 enabled, 0 disabled)
     '''
 
 
