@@ -12,6 +12,10 @@ import time, serial, monitor
 ### Globals ###
 # Not realistic, just a feel good value
 POWER_UP = 0.4
+# I have found that some systems, this soft-bill is too darn fast.
+# and master software may miss messages. Adjust this value higher
+# if you experience this.
+SOFT_DELAY = 0.3
 # Time between states
 TRANSITION = 0.9
 CASHBOX_SIZE = 250
@@ -176,11 +180,11 @@ class Acceptor(object):
         Returns:
             Int -- 0 if okay, 1 to exit, 2 for help, 3 for autopilot
         """
-        if cmd is 'Q':
+        if cmd == 'Q':
             return 1
-        if cmd is '?' or cmd is 'H':
+        if cmd == '?' or cmd == 'H':
             return 2
-        if cmd is 'A':
+        if cmd == 'A':
             return 3
 
         self._mutex.acquire()
@@ -212,9 +216,9 @@ class Acceptor(object):
 
         # Handle bill enable/disable command
         elif len(cmd) is 2:
-            if cmd[0] is 'D':
+            if cmd[0] == 'D':
                 self.disable_note(cmd[1])
-            elif cmd[0] is 'E':
+            elif cmd[0] == 'E':
                 self.enable_note(cmd[1])
             else:
                 print "Unkown E/D command {:s}".format(cmd)
@@ -227,31 +231,31 @@ class Acceptor(object):
                     CHEAT_RATE)
             else:
                 print "Cheat Mode Disabled"
-        elif cmd is 'R':
+        elif cmd == 'R':
             # Put Rejected
             self._b1_ephemeral.put(0x02)
-        elif cmd is 'J':
+        elif cmd == 'J':
             # Toggle Jammed
             self._event = self._event ^ 0x04
-        elif cmd is 'F':
+        elif cmd == 'F':
             # Toggle Stacker Full:
             self._event = self._event ^ 0x08
-        elif cmd is 'P':
+        elif cmd == 'P':
             # Toggle Cashbox Present
             self._lrc_ok = not self._lrc_ok
-        elif cmd is 'W':
+        elif cmd == 'W':
             # Toggle Powering Up
             self._ext = self._ext ^ 0x01
-        elif cmd is 'I':
+        elif cmd == 'I':
             # Put Invalid Command
             self._b2_ephemeral.put(0x02)
-        elif cmd is 'X':
+        elif cmd == 'X':
             # Put Unit Failure
             self._b2_ephemeral.put(0x04)
-        elif cmd is 'Y':
+        elif cmd == 'Y':
             # Set note count back to zero
             self._note_count = 0
-        elif cmd is 'L':
+        elif cmd == 'L':
             print format(self._enables, '#010b')
         else:
             print "Unknown Command: {:s}".format(cmd)
@@ -285,10 +289,10 @@ class Acceptor(object):
             while ser.isOpen() and self.running:
 
                 # Wait for data
-                serial_in = ''
+                serial_in = []
                 while ser.inWaiting() > 0:
-                    serial_in += ser.read(1)
-                if serial_in == '':
+                    serial_in = list(bytearray(ser.read(8)))
+                if len(serial_in) == 0:
                     continue
 
 
@@ -296,42 +300,35 @@ class Acceptor(object):
                 self._mutex.acquire()
                 
                 # Update our enable/disable register
-                self._enables = ord(serial_in[3])
+                self._enables = serial_in[3]
                 
                 # Check and toggle ACK
-                mack = (ord(serial_in[2]) & 1)
+                mack = serial_in[2] & 1
                 
                 if self._ack is -1:
-                    self._ack = (ord(serial_in[2]) & 1)
+                    self._ack = serial_in[2] & 1
                 
-
-                if self._ack != mack:
-                    print "Bad ACK, resending last message..."
-                    msg = self._last_msg
+                self._ack ^= 1
                     
-                else:
-                    # We must be okay, toggle the expected ack #
-                    self._ack ^= 1
+                # Build next message
+                msg = self._get_message()
+    
+                # Set the ACK
+                msg[2] |= mack
+    
+                # Check if we need to stack or return
+                self._accept_or_return(serial_in)
+    
+                # Set the checksum
+                msg[10] = msg[1] ^ msg[2]
+                for byte in xrange(3, 9):
+                    msg[10] ^= msg[byte]
                     
-                    # Build next message
-                    msg = self._get_message()
-    
-                    # Set the ACK
-                    msg[2] |= mack
-    
-                    # Check if we need to stack or return
-                    self._accept_or_return(serial_in)
-    
-                    # Set the checksum
-                    msg[10] = msg[1] ^ msg[2]
-                    for byte in xrange(3, 9):
-                        msg[10] ^= msg[byte]
-                    
-                    # Since we're locked, wipe out any value we may have sent
-                    # ... but only if we're idle so we're positive the master
-                    # got our credit message
-                    if msg[3] is 0x01:
-                        self._value = 0x00
+                # Since we're locked, wipe out any value we may have sent
+                # ... but only if we're idle so we're positive the master
+                # got our credit message
+                if msg[3] is 0x01:
+                    self._value = 0x00
 
 
                 # Send message to master
@@ -340,7 +337,7 @@ class Acceptor(object):
                 self._mutex.release()
 
                 # Slow down a bit, our virutal environment is too fast
-                time.sleep(0.2)
+                time.sleep(SOFT_DELAY)
 
         except serial.SerialException:
             print 'Terminating serial thread'
@@ -360,10 +357,11 @@ class Acceptor(object):
             None
         """
         # If we're in escrow and master says stack
-        if ((ord(master[4]) & 0x20)) and (self._state == 0x04):
+        cmd = master[4]
+        if ((cmd & 0x20) == 0x20) and (self._state == 0x04):
             self._accept_bill()
         # If we're in escrow and master says return
-        elif ((ord(master[4]) & 0x40)) and (self._state == 0x04):
+        elif ((cmd & 0x40) == 0x40) and (self._state == 0x04):
             self._return_bill()
 
 
